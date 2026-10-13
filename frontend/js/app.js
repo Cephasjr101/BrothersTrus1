@@ -1589,3 +1589,173 @@ async function signInWithGoogle() {
   }
   btn.disabled = false;
 }
+/* =====================================================================
+   v7 — on-screen selection cart + modal checkout forms
+   ===================================================================== */
+let _selCart = null;
+function dismissCart() { if (_selCart) { _selCart.remove(); _selCart = null; } }
+
+function showCart({ icon: icn, title, sub, amount, cta, onContinue }) {
+  dismissCart();
+  const el = document.createElement("div");
+  el.className = "sel-cart";
+  el.innerHTML = `
+    <button class="sel-cart-x" aria-label="Dismiss">${icon("x")}</button>
+    <h4>${icon(icn, "ic-sm")} ${esc(title)}</h4>
+    <div class="sc-sub">${esc(sub)}</div>
+    <div class="sc-amount">${GHS(amount)}</div>
+    <button class="btn btn-primary btn-sm" id="sel-cart-go">${esc(cta)}</button>`;
+  document.body.appendChild(el);
+  _selCart = el;
+  el.querySelector(".sel-cart-x").onclick = dismissCart;
+  el.querySelector("#sel-cart-go").onclick = onContinue;
+}
+
+/* ---- flight traveler form (opens in modal) ---- */
+function flightFormHtml(p, legs, total) {
+  const paxCount = p.adults + p.children + p.infants;
+  return `
+    <h3 class="section-title" style="font-size:1.15rem">Traveller details</h3>
+    <form id="flight-pax-form" class="grid mt" style="gap:.8rem">
+      ${Array.from({ length: paxCount }, (_, i) => {
+        const type = i < p.adults ? "adult" : (i < p.adults + p.children ? "child" : "infant");
+        return `<div class="pax-card"><h4>${type} ${i + 1}</h4><div class="field-row">
+          <div class="field"><label>Title</label><select name="p${i}_title"><option>Mr</option><option>Mrs</option><option>Ms</option><option>Miss</option><option>Dr</option><option>Chief</option></select></div>
+          <div class="field"><label>First name</label><input name="p${i}_first" required></div>
+          <div class="field"><label>Last name</label><input name="p${i}_last" required></div>
+          <input type="hidden" name="p${i}_type" value="${type}">
+        </div></div>`; }).join("")}
+      <div class="pax-card"><h4>Contact</h4><div class="field-row">
+        <div class="field"><label>Email</label><input name="contact_email" type="email" required value="${esc(state.user?.email || "")}"></div>
+        <div class="field"><label>Phone</label><input name="contact_phone" required value="${esc(state.user?.phone || "")}"></div>
+      </div></div>
+      <div class="sum-row total"><span>Total (incl. service fee)</span><span>${GHS(total)}</span></div>
+      <button class="btn btn-primary btn-block">Create booking & pay</button>
+    </form>`;
+}
+function bindFlightForm(form, p, legs) {
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const paxCount = p.adults + p.children + p.infants;
+    const passengers = Array.from({ length: paxCount }, (_, i) => ({
+      type: fd.get(`p${i}_type`), title: fd.get(`p${i}_title`),
+      first_name: fd.get(`p${i}_first`), last_name: fd.get(`p${i}_last`),
+    }));
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    try {
+      const r = await api("/bookings/flight", { method: "POST", body: {
+        trip_type: p.trip, cabin: p.cabin,
+        legs: legs.map(l => ({ origin: l.origin, dest: l.dest, date: l.date, flight_key: l.flight_key })),
+        passengers, contact_email: fd.get("contact_email"), contact_phone: fd.get("contact_phone"),
+      }});
+      closeModal(); dismissCart();
+      toast("Booking created — complete payment to confirm", "success");
+      location.hash = `#/pay/${r.reference}`;
+    } catch (err) { toast(err.message, "error"); btn.disabled = false; }
+  };
+}
+
+/* ---- hotel guest form (modal) — overrides the old page-flow version ---- */
+function renderHotelBooking(hotel, room, p, nights) {
+  showCart({ icon: "hotel", title: hotel.name,
+    sub: `${room.type} · ${fmtDate(p.checkin)} → ${fmtDate(p.checkout)} · ${p.rooms} room(s)`,
+    amount: room.pricing.total, cta: "Enter guest details →",
+    onContinue: () => {
+      openModal(`
+        <h3 class="section-title" style="font-size:1.15rem">Guest & payment details</h3>
+        <p class="muted small mb">${esc(hotel.name)} · ${esc(room.type)} · ${fmtDate(p.checkin)} → ${fmtDate(p.checkout)}</p>
+        <form id="hotel-book-form" class="grid" style="gap:.8rem">
+          <div class="field"><label>Lead guest name</label><input name="guest_name" required value="${esc(state.user?.full_name || "")}"></div>
+          <div class="field-row">
+            <div class="field"><label>Email</label><input name="contact_email" type="email" required value="${esc(state.user?.email || "")}"></div>
+            <div class="field"><label>Phone</label><input name="contact_phone" required value="${esc(state.user?.phone || "")}"></div>
+          </div>
+          <div class="field"><label>Special requests (optional)</label><textarea name="special_requests" rows="2"></textarea></div>
+          <div class="sum-row total"><span>Total incl. VAT</span><span>${GHS(room.pricing.total)}</span></div>
+          <button class="btn btn-primary btn-block">Create reservation & pay</button>
+        </form>`);
+      bindHotelForm($("#hotel-book-form"), hotel, room, p);
+    } });
+}
+function bindHotelForm(form, hotel, room, p) {
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    try {
+      const r = await api("/bookings/hotel", { method: "POST", body: {
+        hotel_id: hotel.id, room_type: room.type, room_key: room.rate_key || null,
+        checkin: p.checkin, checkout: p.checkout, rooms: p.rooms, guests: p.guests,
+        guest_name: fd.get("guest_name"), contact_email: fd.get("contact_email"),
+        contact_phone: fd.get("contact_phone"), special_requests: fd.get("special_requests"),
+      }});
+      closeModal(); dismissCart();
+      toast("Reservation created — complete payment to confirm", "success");
+      location.hash = `#/pay/${r.reference}`;
+    } catch (err) { toast(err.message, "error"); btn.disabled = false; }
+  };
+}
+
+/* ---- car driver form (modal) — overrides the old page-flow version ---- */
+function renderCarBooking(car, p) {
+  showCart({ icon: "car", title: `${car.name}`,
+    sub: `${p.city} · ${fmtDate(p.pickup_date)} → ${fmtDate(p.return_date)} · ${car.pricing.days} day(s)`,
+    amount: car.pricing.total, cta: "Enter driver details →",
+    onContinue: () => {
+      openModal(`
+        <h3 class="section-title" style="font-size:1.15rem">Driver details</h3>
+        <p class="muted small mb">${esc(car.name)} · ${esc(p.city)} · ${fmtDate(p.pickup_date)} → ${fmtDate(p.return_date)}</p>
+        <form id="car-book-form" class="grid" style="gap:.8rem">
+          <div class="field-row">
+            <div class="field"><label>Driver name</label><input name="driver_name" required value="${esc(state.user?.full_name || "")}"></div>
+            <div class="field"><label>Driver age</label><input name="driver_age" type="number" min="18" max="90" value="30" required></div>
+          </div>
+          <div class="field"><label>Pickup location</label>
+            <select name="pickup_location"><option>Airport</option><option>City centre office</option><option>Hotel delivery</option></select></div>
+          <div class="field-row">
+            <div class="field"><label>Email</label><input name="contact_email" type="email" required value="${esc(state.user?.email || "")}"></div>
+            <div class="field"><label>Phone</label><input name="contact_phone" required value="${esc(state.user?.phone || "")}"></div>
+          </div>
+          <div class="sum-row total"><span>Total incl. VAT</span><span>${GHS(car.pricing.total)}</span></div>
+          <button class="btn btn-primary btn-block">Create booking & pay</button>
+        </form>`);
+      bindCarForm($("#car-book-form"), car, p);
+    } });
+}
+function bindCarForm(form, car, p) {
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const btn = form.querySelector("button");
+    btn.disabled = true;
+    try {
+      const r = await api("/bookings/car", { method: "POST", body: {
+        city: p.city, category: car.code, pickup_date: p.pickup_date, return_date: p.return_date,
+        pickup_location: fd.get("pickup_location"), driver_name: fd.get("driver_name"),
+        driver_age: +fd.get("driver_age"), contact_email: fd.get("contact_email"),
+        contact_phone: fd.get("contact_phone"),
+      }});
+      closeModal(); dismissCart();
+      toast("Car booking created — complete payment to confirm", "success");
+      location.hash = `#/pay/${r.reference}`;
+    } catch (err) { toast(err.message, "error"); btn.disabled = false; }
+  };
+}
+
+/* ---- admin: schedule interview (delegated — works on any admin table render) ---- */
+document.addEventListener("click", async e => {
+  const btn = e.target.closest("[data-schedule]");
+  if (!btn) return;
+  const date = prompt("Interview date (YYYY-MM-DD):", todayISO());
+  if (!date) return;
+  const time = prompt("Interview time (e.g. 10:00):", "10:00") || "";
+  const center = prompt("Centre/location:", "Brother'sTrust HQ - Accra") || "";
+  try {
+    await api(`/admin/bookings/${btn.dataset.schedule}/schedule`, { method: "POST", body: { date, time, center } });
+    toast("Interview scheduled — customer notified", "success");
+    if (typeof viewAdmin === "function") viewAdmin();
+  } catch (err) { toast(err.message, "error"); }
+});
