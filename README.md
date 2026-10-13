@@ -7,10 +7,10 @@ backend (SQLite, zero external services needed) + one self-contained SPA.
 
 | Module | What it does |
 |---|---|
-| ✈️ Flights | Search 12 airports / 14 routes, 4 cabin classes, deterministic daily schedules, fare engine (demand + advance-purchase pricing), multi-passenger pricing, one-way & round-trip |
+| ✈️ Flights | Search 250+ airports / 260+  routes, 4 cabin classes, deterministic daily schedules, fare engine (demand + advance-purchase pricing), multi-passenger pricing, one-way & round-trip |
 | 🏨 Hotels | 26 hotels in 10 cities, room-type availability computed live from bookings, VAT, sold-out handling |
-| 🚗 Cars | 6 vehicle classes in 7 cities, fleet availability per date range, supplier assignment |
-| 🛂 Visa | 12 destination countries with requirement profiles (visa-free / eVisa / VFS / embassy), capacity-managed appointment slots, document checklists, consultant hand-off |
+| 🚗 Cars | 15 vehicle classes in 11 cities, fleet availability per date range, supplier assignment |
+| 🛂 Visa | 100+ destination countries with requirement profiles (visa-free / eVisa / VFS / embassy), capacity-managed appointment slots, document checklists, consultant hand-off |
 | 💳 Payments | Mock gateway shaped exactly like Paystack (`initialize` → checkout page → `confirm`, plus `callback` + `webhook`). Swap in real Paystack/Flutterwave by replacing `routers/payments.py` internals |
 | 👤 Accounts | Register/login (PBKDF2 + HS256 JWT, stdlib only), booking history, cancellations with refund rules, in-app notifications |
 | 🛠 Admin | Stats dashboard (revenue, bookings by type/status, daily series), all bookings, all users |
