@@ -47,7 +47,10 @@ async function api(path, opts = {}) {
     throw new Error("Sign in to continue");
   }
   let data = null;
-  try { data = await res.json(); } catch { /* non-json */ }
+  try { data = await res.json(); }
+  catch {
+    if (res.ok) throw new Error(`Server returned a non-JSON page for ${path} — the API route is missing on the deployed backend (stale deploy). Redeploy the latest backend files.`);
+  }
   if (!res.ok) {
     const detail = data && data.detail;
     const msg = Array.isArray(detail) ? detail.map(d => d.msg).join("; ")
@@ -205,7 +208,7 @@ async function loadMeta() {
 }
 const airportDatalist = () => {
   const base = state.meta.airports
-    .map(a => `<option value="${a.code}">${esc(a.city)}, ${esc(a.country)}</option>`).join("");
+    .map(a => `<option value="${a.code}">${a.code} \u00b7 ${esc(a.country)} \u2014 ${esc(a.city)}</option>`).join("");
   const seen = new Set();
   const countries = state.meta.airports
     .filter(a => a.country && !seen.has(a.country) && seen.add(a.country))
@@ -288,9 +291,10 @@ function flightSearchForm(p = {}) {
       <label class="small"><input type="radio" name="trip" value="round_trip" ${p.trip === "round_trip" ? "checked" : ""}> Round trip</label>
     </div>
     <div class="form-grid">
-      <div class="field"><label>From</label><input name="origin" list="dl-airports" maxlength="3" required style="text-transform:uppercase" placeholder="Type city or code" value="${esc(p.origin || "ACC")}"></div>
-      <div class="field"><label>To</label><input name="dest" list="dl-airports" maxlength="3" required style="text-transform:uppercase" placeholder="Type city or code" value="${esc(p.dest || "LOS")}"></div>
+      <div class="field"><label>From — country, city or code</label><input name="origin" list="dl-airports" maxlength="30" required placeholder="e.g. Ghana, Accra, GH or ACC" value="${esc(p.origin || "ACC")}"></div>
+      <div class="field"><label>To — country, city or code</label><input name="dest" list="dl-airports" maxlength="30" required placeholder="e.g. UAE, Dubai, AE or DXB" value="${esc(p.dest || "LOS")}"></div>
       <datalist id="dl-airports">${airportDatalist()}</datalist>
+      <div class="small muted" style="grid-column:1/-1">One box accepts everything: <b>country name</b> (Ghana), <b>city name</b> (Accra), <b>country code</b> (GH) or <b>airport code</b> (ACC) — type any familiar name and matching suggestions appear.</div>
       <div class="field"><label>Departure</label><input type="date" name="date" value="${p.date || addDaysISO(todayISO(), 7)}" min="${todayISO()}"></div>
       <div class="field" id="f-ret" ${p.trip === "round_trip" ? "" : "hidden"}><label>Return</label><input type="date" name="ret" value="${p.ret || addDaysISO(todayISO(), 10)}" min="${todayISO()}"></div>
       <div class="field"><label>Cabin</label><select name="cabin">${state.meta.cabins.map(c => `<option value="${c.id}" ${c.id === (p.cabin || "economy") ? "selected" : ""}>${c.label}</option>`).join("")}</select></div>
@@ -319,8 +323,18 @@ function wireFlightForm(root) {
       const q = (raw || "").trim().toLowerCase();
       if (!q) return "";
       const ap = state.meta.airports;
+      const ISO2 = { gh: "ghana", ng: "nigeria", ae: "uae", gb: "united kingdom", uk: "united kingdom",
+        us: "usa", ca: "canada", fr: "france", dk: "denmark", be: "belgium", ro: "romania", rs: "serbia",
+        sa: "saudi arabia", kw: "kuwait", qa: "qatar", ke: "kenya", za: "south africa", eg: "egypt",
+        tr: "t\u00fcrkiye", ma: "morocco", sg: "singapore", mu: "mauritius", de: "germany", es: "spain",
+        nl: "netherlands", it: "italy", ch: "switzerland", at: "austria", cn: "china", jp: "japan",
+        in: "india", au: "australia", br: "brazil", mx: "mexico", th: "thailand", my: "malaysia" };
       const byCode = ap.find(a => a.code.toLowerCase() === q);
       if (byCode) return byCode.code;
+      if (q.length === 2 && ISO2[q]) {
+        const byISO = ap.find(a => (a.country || "").toLowerCase() === ISO2[q]);
+        if (byISO) return byISO.code;
+      }
       const byCity = ap.find(a => a.city.toLowerCase() === q) || ap.find(a => a.city.toLowerCase().includes(q));
       if (byCity) return byCity.code;
       const byCountry = ap.find(a => (a.country || "").toLowerCase() === q) || ap.find(a => (a.country || "").toLowerCase().includes(q));
