@@ -360,7 +360,6 @@ function legRow(f) {
       <div>
         <div style="font-weight:700">${f.airline} · ${f.flight_no}</div>
         <div class="muted small">${f.aircraft} · ${f.cabin}</div>
-        <span class="ref-tag ${f.refundable ? "ref-yes" : "ref-no"}">${f.refundable ? "REFUNDABLE" : "NON-REFUNDABLE"}</span>
       </div>
       <div class="flight-times">
         <div><div class="t">${fmtTime(f.departure)}</div><div class="muted small">${f.origin}</div></div>
