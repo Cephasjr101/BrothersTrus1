@@ -293,7 +293,7 @@ function flightSearchForm(p = {}) {
     </div>
     <div class="form-grid">
       <div class="field"><label>From — country, city or code</label><input name="origin" list="dl-airports" maxlength="30" required placeholder="e.g. Ghana, Accra, GH or ACC" value="${esc(p.origin || "ACC")}"></div>
-      <div class="field"><label>To — country, city or code</label><input name="dest" list="dl-airports" maxlength="30" required placeholder="e.g. UAE, Dubai, AE or DXB" value="${esc(p.dest || "KMS")}"></div>
+      <div class="field"><label>To — country, city or code</label><input name="dest" list="dl-airports" maxlength="30" required placeholder="e.g. UAE, Dubai, AE or DXB" value="${esc(p.dest || "DXB")}"></div>
       <datalist id="dl-airports">${airportDatalist()}</datalist>
       <div class="small muted" style="grid-column:1/-1">One box accepts everything: <b>country name</b> (Ghana), <b>city name</b> (Accra), <b>country code</b> (GH) or <b>airport code</b> (ACC) — type any familiar name and matching suggestions appear.</div>
       <div class="field"><label>Departure</label><input type="date" name="date" value="${p.date || addDaysISO(todayISO(), 7)}" min="${todayISO()}"></div>
@@ -378,7 +378,7 @@ function legRow(f) {
 
 function viewFlights(params) {
   const p = {
-    origin: params.get("origin") || "ACC", dest: params.get("dest") || "KMS",
+    origin: params.get("origin") || "ACC", dest: params.get("dest") || "DXB",
     date: params.get("date") || addDaysISO(todayISO(), 7),
     ret: params.get("ret") || "", trip: params.get("trip") || "one_way",
     cabin: params.get("cabin") || "economy", bags: +(params.get("bags") || 0),
