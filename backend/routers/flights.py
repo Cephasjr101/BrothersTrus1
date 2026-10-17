@@ -81,17 +81,21 @@ def book_flight(body: schemas.FlightBookingIn,
     service = seed.SERVICE_FEE
     bags_fee = seed.BAG_FEE * body.bags * len(body.passengers)
     amount = fare + taxes + service + bags_fee
+    reference = make_reference("BTFL")
     hold = None
+    hold_error = None
     if air.duffel_configured():
         try:
             hold = air.hold_order(legs_out[0]["flight_key"],
                                   [f"{p.title} {p.first_name} {p.last_name}" for p in body.passengers])
-        except Exception:
-            hold = None   # fall back to post-payment ticketing if hold fails
-    reference = make_reference("BTFL")
+            print(f"[bt-travel] Duffel hold placed: {hold.get('order_id')} for {reference}")
+        except Exception as exc:
+            hold_error = str(exc)[:300]
+            print(f"[bt-travel] Duffel hold FAILED for {reference}: {hold_error}")
     details = {
         "trip_type": body.trip_type, "cabin": seed.CABINS[body.cabin]["label"],
         "hold_order": hold,
+        "hold_error": hold_error,
         "legs": legs_out,
         "fare": fare, "taxes": taxes, "service_fee": service,
         "bags": body.bags, "bags_fee": bags_fee,
