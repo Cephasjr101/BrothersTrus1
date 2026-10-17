@@ -59,7 +59,7 @@ class PassengerIn(BaseModel):
     title: str = "Mr"
     first_name: str = Field(min_length=1, max_length=60)
     last_name: str = Field(min_length=1, max_length=60)
-    dob: Optional[date] = None
+    dob: date   # required by airlines (Duffel order payloads need born_on)
 
 
 class FlightBookingIn(BaseModel):
