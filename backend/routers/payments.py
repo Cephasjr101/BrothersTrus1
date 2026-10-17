@@ -79,8 +79,12 @@ def _maybe_ticket_flight(db, booking_row) -> None:
     try:
         details = json.loads(booking_row["details"])
         if booking_row["type"] == "flight" and air.duffel_configured() and "legs" in details:
+            inst = details.get("instant_order") or {}
             hold_id = (details.get("hold_order") or {}).get("order_id")
-            if hold_id:
+            if inst.get("order_id"):
+                # instant order (deferred payment) - already ticketed at booking time
+                details["tickets"] = [{"leg": "instant order (deferred payment)", **inst}]
+            elif hold_id:
                 # seat was locked at booking time - just capture it now
                 details["tickets"] = [{"leg": "held order (captured after payment)",
                                        **air.confirm_held_order(hold_id)}]
