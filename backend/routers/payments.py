@@ -91,7 +91,8 @@ def _maybe_ticket_flight(db, booking_row) -> None:
                         continue
                     tickets.append({"leg": f"{leg.get('origin')}\u2192{leg.get('dest')}",
                                     **air.ticket_order(leg["flight_key"],
-                                                       json.loads(booking_row["travelers"]))})
+                                                       details.get("passengers") or [],
+                                                       details.get("contact") or {})})
                 if tickets:
                     details["tickets"] = tickets
         elif booking_row["type"] == "hotel" and details.get("provider") == "liteapi":
