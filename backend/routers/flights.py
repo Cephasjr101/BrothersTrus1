@@ -85,6 +85,7 @@ def book_flight(body: schemas.FlightBookingIn,
     hold = None
     hold_error = None
     pax = [p.model_dump(mode="json") for p in body.passengers]
+    instant = None
     if air.duffel_configured():
         try:
             hold = air.hold_order(legs_out[0]["flight_key"], pax,
@@ -93,9 +94,20 @@ def book_flight(body: schemas.FlightBookingIn,
         except Exception as exc:
             hold_error = str(exc)[:300]
             print(f"[bt-travel] Duffel hold FAILED for {reference}: {hold_error}")
+            if "hold orders" in hold_error.lower():
+                # live holds not enabled on this account - secure seat with an
+                # instant order on deferred payment instead
+                try:
+                    instant = air.book_instant(legs_out[0]["flight_key"], pax,
+                                               {"email": body.contact_email, "phone": body.contact_phone})
+                    print(f"[bt-travel] Duffel instant order (defer) placed: {instant.get('order_id')} for {reference}")
+                except Exception as exc2:
+                    hold_error = (hold_error + " | instant fallback: " + str(exc2))[:300]
+                    print(f"[bt-travel] Duffel instant fallback FAILED for {reference}: {exc2}")
     details = {
         "trip_type": body.trip_type, "cabin": seed.CABINS[body.cabin]["label"],
         "hold_order": hold,
+        "instant_order": instant,
         "hold_error": hold_error,
         "passengers": pax,
         "legs": legs_out,
