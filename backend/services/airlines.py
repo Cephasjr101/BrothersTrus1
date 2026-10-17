@@ -315,6 +315,13 @@ def _duffel_revalidate(origin: str, dest: str, d: date, flight_key: str, cabin: 
     return _duffel_offer_to_flight(offer, origin, dest, d, cabin)
 
 
+def _clean_name(name: str) -> str:
+    """Duffel validates names as letters/hyphens/apostrophes only - strip anything else."""
+    import re
+    cleaned = re.sub(r"[^A-Za-z \-']", "", name or "").strip()
+    return cleaned or "Traveler"
+
+
 def _pax_payload(passengers: list[dict], contact: dict) -> list[dict]:
     """Duffel requires full identity per passenger: id, title, gender, born_on, email, phone."""
     pax = []
@@ -327,8 +334,8 @@ def _pax_payload(passengers: list[dict], contact: dict) -> list[dict]:
             "born_on": str(p.get("born_on") or p.get("dob") or "1990-01-01"),
             "email": contact.get("email", ""),
             "phone_number": contact.get("phone", ""),
-            "given_name": p.get("first_name") or p.get("given_name") or "Traveler",
-            "family_name": p.get("last_name") or p.get("family_name") or "Traveler",
+            "given_name": _clean_name(p.get("first_name") or p.get("given_name")),
+            "family_name": _clean_name(p.get("last_name") or p.get("family_name")),
         })
     return pax
 
