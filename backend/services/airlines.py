@@ -315,17 +315,28 @@ def _duffel_revalidate(origin: str, dest: str, d: date, flight_key: str, cabin: 
     return _duffel_offer_to_flight(offer, origin, dest, d, cabin)
 
 
-def ticket_order(offer_id: str, travelers: list[str]) -> dict:
+def _pax_payload(passengers: list[dict], contact: dict) -> list[dict]:
+    """Duffel requires full identity per passenger: id, title, gender, born_on, email, phone."""
+    pax = []
+    for i, p in enumerate(passengers or []):
+        title = (p.get("title") or "Mr").lower()
+        pax.append({
+            "id": f"pas_{i+1}",
+            "title": title if title in ("mr", "mrs", "ms", "miss") else "mr",
+            "gender": "f" if title in ("mrs", "ms", "miss") else "m",
+            "born_on": str(p.get("born_on") or p.get("dob") or "1990-01-01"),
+            "email": contact.get("email", ""),
+            "phone_number": contact.get("phone", ""),
+            "given_name": p.get("first_name") or p.get("given_name") or "Traveler",
+            "family_name": p.get("last_name") or p.get("family_name") or "Traveler",
+        })
+    return pax
+
+
+def ticket_order(offer_id: str, passengers: list[dict], contact: dict) -> dict:
     """Issue the real airline order after payment (Duffel = merchant of record,
     so no IATA accreditation is required). Returns {order_id, record_locator}."""
-    pax = []
-    for name in travelers:
-        parts = name.split()
-        if parts and parts[0] in ("Mr", "Mrs", "Ms", "Miss", "Dr", "Chief"):
-            parts = parts[1:]
-        given = " ".join(parts[:-1]) if len(parts) > 1 else (parts[0] if parts else "Traveler")
-        family = parts[-1] if parts else "Traveler"
-        pax.append({"type": "adult", "given_name": given, "family_name": family})
+    pax = _pax_payload(passengers, contact)
     # Payment model: "defer" = Duffel pays the airline now and invoices you weekly
     # (the right fit when customers pay you via Paystack). "balance" = charge your
     # pre-funded Duffel balance immediately (default in sandbox if defer not enabled).
@@ -337,22 +348,14 @@ def ticket_order(offer_id: str, travelers: list[str]) -> dict:
             "payment_type": payment_type}
 
 
-def hold_order(offer_id: str, travelers: list[str]) -> dict:
+def hold_order(offer_id: str, passengers: list[dict], contact: dict) -> dict:
     """Secure the offer IMMEDIATELY with a HOLD order (seat locked, no ticket yet).
     Held orders are captured after customer payment, or cancelled on cancellation.
     This is what prevents 'offer expired' on slow checkouts/office/installments."""
-    pax = []
-    for name in travelers:
-        parts = name.split()
-        if parts and parts[0] in ("Mr", "Mrs", "Ms", "Miss", "Dr", "Chief"):
-            parts = parts[1:]
-        given = " ".join(parts[:-1]) if len(parts) > 1 else (parts[0] if parts else "Traveler")
-        family = parts[-1] if parts else "Traveler"
-        pax.append({"type": "adult", "given_name": given, "family_name": family})
     order = _duffel_req("POST", "/air/orders", {"data": {
         "type": "hold", "selected_offers": [offer_id],
         "payment": {"type": "defer"},
-        "passengers": pax}}).get("data") or {}
+        "passengers": _pax_payload(passengers, contact)}}).get("data") or {}
     return {"order_id": order.get("id", ""), "expires_at": order.get("expires_at", ""),
             "status": order.get("status", "held")}
 
