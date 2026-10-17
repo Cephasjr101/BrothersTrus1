@@ -84,10 +84,11 @@ def book_flight(body: schemas.FlightBookingIn,
     reference = make_reference("BTFL")
     hold = None
     hold_error = None
+    pax = [p.model_dump(mode="json") for p in body.passengers]
     if air.duffel_configured():
         try:
-            hold = air.hold_order(legs_out[0]["flight_key"],
-                                  [f"{p.title} {p.first_name} {p.last_name}" for p in body.passengers])
+            hold = air.hold_order(legs_out[0]["flight_key"], pax,
+                                  {"email": body.contact_email, "phone": body.contact_phone})
             print(f"[bt-travel] Duffel hold placed: {hold.get('order_id')} for {reference}")
         except Exception as exc:
             hold_error = str(exc)[:300]
@@ -96,6 +97,7 @@ def book_flight(body: schemas.FlightBookingIn,
         "trip_type": body.trip_type, "cabin": seed.CABINS[body.cabin]["label"],
         "hold_order": hold,
         "hold_error": hold_error,
+        "passengers": pax,
         "legs": legs_out,
         "fare": fare, "taxes": taxes, "service_fee": service,
         "bags": body.bags, "bags_fee": bags_fee,
