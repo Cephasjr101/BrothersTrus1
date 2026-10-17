@@ -360,6 +360,18 @@ def hold_order(offer_id: str, passengers: list[dict], contact: dict) -> dict:
             "status": order.get("status", "held")}
 
 
+def book_instant(offer_id: str, passengers: list[dict], contact: dict) -> dict:
+    """Instant order with DEFERRED payment - the seat is secured and ticketed
+    immediately; Duffel bills you on the weekly invoice. Fallback for accounts
+    where live hold orders are not enabled. Cancel unpaid bookings promptly."""
+    order = _duffel_req("POST", "/air/orders", {"data": {
+        "type": "instant", "selected_offers": [offer_id],
+        "payment": {"type": "defer"},
+        "passengers": _pax_payload(passengers, contact)}}).get("data") or {}
+    return {"order_id": order.get("id", ""), "record_locator": order.get("booking_reference", ""),
+            "status": order.get("status", "confirmed"), "paid": False}
+
+
 def confirm_held_order(order_id: str) -> dict:
     """Capture (pay for) a held order after customer payment - the ticket then issues."""
     d = _duffel_req("POST", f"/air/orders/{order_id}/actions/pay",
