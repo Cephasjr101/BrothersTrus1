@@ -1373,12 +1373,12 @@ function viewPrivacy() {
     <h3>6. Retention & security</h3>
     <p>We keep booking records as required for accounting and travel regulations, encrypt passwords (PBKDF2), sign sessions (JWT), force HTTPS in production and rate-limit abuse-prone endpoints.</p>
     <h3>7. Your rights</h3>
-    <p>You may request access, correction or deletion of your data at any time: <b>hello@brotherstrusttravel.com</b>. We respond within 30 days.</p>
+    <p>You may request access, correction or deletion of your data at any time: <b>hello@japafly.com</b>. We respond within 30 days.</p>
     <h3>8. Children</h3>
     <p>Our services are not directed at children under 13, and we do not knowingly collect their data.</p>
     <h3>9. Changes</h3>
     <p>If we change this policy, the updated version will be posted here with a new "Last updated" date.</p>
-    <p><b>Contact:</b> hello@brotherstrusttravel.com · +233 55 193 4922 · Accra, Ghana.</p>`);
+    <p><b>Contact:</b> hello@japafly.com · +233 55 193 4922 · Accra, Ghana.</p>`);
 }
 
 function viewTerms() {
@@ -1410,7 +1410,7 @@ function viewTerms() {
     <p>The Brother'sTrust Travel brand, design and content belong to us. You may not copy them without permission.</p>
     <h3>10. Governing law</h3>
     <p>These terms are governed by the laws of the Republic of Ghana, with the courts of Accra having jurisdiction.</p>
-    <p><b>Contact:</b> hello@brotherstrusttravel.com · +233 55 193 4922.</p>`);
+    <p><b>Contact:</b> hello@japafly.com · +233 55 193 4922.</p>`);
 }
 
 function viewAbout() {
@@ -1442,7 +1442,7 @@ function viewContact() {
       <div class="card card-pad">
         <h3 class="mb">Get in touch</h3>
         <p class="fcontact">${icon("phone","ic-sm")} <b>+233 55 193 4922</b> (Mon–Sat, 8:00–20:00 GMT)</p>
-        <p class="fcontact">${icon("mail","ic-sm")} <a href="mailto:hello@brotherstrusttravel.com">hello@brotherstrusttravel.com</a></p>
+        <p class="fcontact">${icon("mail","ic-sm")} <a href="mailto:hello@japafly.com">hello@japafly.com</a></p>
         <p class="fcontact">${icon("whatsapp","ic-sm")} <a href="https://wa.me/233551934922" target="_blank" rel="noopener">+233 55 193 4922 (WhatsApp)</a></p>
         <p class="mt fcontact">${icon("pin","ic-sm")} <b>Accra</b> — Airport Residential<br><span class="fcontact">${icon("pin","ic-sm")} <b>Lagos</b> — Victoria Island</span><br><span class="fcontact">${icon("pin","ic-sm")} <b>Abuja</b> — Wuse II</span></p>
       </div>
@@ -1459,7 +1459,7 @@ function viewContact() {
   $("#contact-form").onsubmit = e => {
     e.preventDefault();
     const f = new FormData(e.target);
-    location.href = `mailto:hello@brotherstrusttravel.com?subject=${encodeURIComponent("Enquiry from " + f.get("name"))}&body=${encodeURIComponent(f.get("msg") + "\n\n— " + f.get("name") + " (" + f.get("email") + ")")}`;
+    location.href = `mailto:hello@japafly.com?subject=${encodeURIComponent("Enquiry from " + f.get("name"))}&body=${encodeURIComponent(f.get("msg") + "\n\n— " + f.get("name") + " (" + f.get("email") + ")")}`;
     toast("Opening your email app…", "success");
   };
 }
@@ -1752,6 +1752,7 @@ function flightFormHtml(p, legs, total) {
           <div class="field"><label>Title</label><select name="p${i}_title"><option>Mr</option><option>Mrs</option><option>Ms</option><option>Miss</option><option>Dr</option><option>Chief</option></select></div>
           <div class="field"><label>First name</label><input name="p${i}_first" required></div>
           <div class="field"><label>Last name</label><input name="p${i}_last" required></div>
+          <div class="field"><label>Date of birth</label><input name="p${i}_dob" type="date" required max="${todayISO()}"></div>
           <input type="hidden" name="p${i}_type" value="${type}">
         </div></div>`; }).join("")}
       <div class="pax-card"><h4>Contact</h4><div class="field-row">
@@ -1771,6 +1772,7 @@ function bindFlightForm(form, p, legs) {
     const passengers = Array.from({ length: paxCount }, (_, i) => ({
       type: fd.get(`p${i}_type`), title: fd.get(`p${i}_title`),
       first_name: fd.get(`p${i}_first`), last_name: fd.get(`p${i}_last`),
+      dob: fd.get(`p${i}_dob`),
     }));
     const btn = form.querySelector("button");
     btn.disabled = true;
