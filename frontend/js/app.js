@@ -100,8 +100,6 @@ function openAuthModal(note = "") {
       <button class="btn btn-primary btn-block" id="auth-submit">Sign in</button>
       <div class="center" id="forgot-wrap"><a href="#" id="link-forgot" class="small">Forgot password?</a></div>
     </form>
-    <div id="google-wrap" class="hidden">
-      <div class="center" style="margin:.7rem 0 .5rem;color:var(--muted)"><span style="border-top:1px solid var(--line);width:70px;display:inline-block;vertical-align:middle;margin-right:.6rem"></span>or<span style="border-top:1px solid var(--line);width:70px;display:inline-block;vertical-align:middle;margin-left:.6rem"></span></div>
       <button class="btn btn-outline btn-block" id="google-btn"><span class="g-logo">G</span> Continue with Google</button>
     </div>
     <div id="forgot-view" class="hidden">
@@ -126,8 +124,6 @@ function openAuthModal(note = "") {
   $("#link-forgot").onclick = e => { e.preventDefault(); showForgot(); };
   $("#link-back-login").onclick = e => { e.preventDefault(); $("#auth-form").classList.remove("hidden"); $("#forgot-wrap").classList.remove("hidden"); $("#forgot-view").classList.add("hidden"); };
   const showForgot = () => { $("#auth-form").classList.add("hidden"); $("#forgot-wrap").classList.add("hidden"); $("#forgot-view").classList.remove("hidden"); };
-  $("#google-btn").onclick = signInWithGoogle;   // wire unconditionally — config fetch below only controls visibility
-  api("/auth/firebase-config").then(() => { $("#google-wrap").classList.remove("hidden"); }).catch(() => {});
   $("#forgot-form").onsubmit = async e => {
     e.preventDefault();
     const btn = e.target.querySelector("button");
