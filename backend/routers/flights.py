@@ -1,0 +1,133 @@
+"""Flight search + booking."""
+import sqlite3
+from datetime import date as date_type
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+import schemas
+import seed
+from services import airlines as air
+from services import world_data as wd
+from services import fx as _fxm
+from database import get_db
+from deps import current_user, make_reference, notify, parse_date
+
+router = APIRouter(tags=["flights"])
+
+
+@router.get("/meta/flights")
+def flight_meta():
+    """Airports, cabins, world airline registry (IATA/ICAO/alliance) and route map."""
+    return {
+        "provider": air.provider_name(),
+        "fx": _fxm.current_rate_display(),
+        "airports": [{"code": c, **seed.AIRPORTS.get(c, {}), **air.AIRPORTS.get(c, {})} for c in seed.AIRPORTS]
+                    + [a for a in wd.world_airports() if a["code"] not in seed.AIRPORTS],
+        "airlines": [{"iata": c, **a} for c, a in air.AIRLINES.items()],
+        "cabins": [{"id": k, **v} for k, v in seed.CABINS.items()],
+        "routes": [
+            {"origin": o.split("-")[0], "dest": o.split("-")[1], "base": r["base"],
+             "duration_min": r["duration"], "stops": r["stops"]}
+            for o, r in seed.ROUTES.items()
+        ],
+    }
+
+
+@router.get("/flights/search")
+def search_flights(
+    origin: str = Query(min_length=3, max_length=3),
+    dest: str = Query(min_length=3, max_length=3),
+    date: str = Query(...),
+    cabin: str = Query("economy"),
+):
+    d = parse_date(date, "date")
+    if d < date_type.today():
+        raise HTTPException(400, "Departure date is in the past")
+    if cabin not in seed.CABINS:
+        raise HTTPException(400, "Unknown cabin class")
+    try:
+        flights = air.search(origin.upper(), dest.upper(), d, cabin)
+    except Exception as exc:
+        raise HTTPException(502, f"Live flight provider error: {exc}")
+    if not flights:
+        raise HTTPException(404, "No flights on this route — pick another city pair")
+    return {
+        "origin": seed.AIRPORTS.get(origin.upper(), {}),
+        "dest": seed.AIRPORTS.get(dest.upper(), {}),
+        "date": d.isoformat(), "cabin": cabin,
+        "flights": sorted(flights, key=lambda f: f["total"]),
+    }
+
+
+@router.post("/bookings/flight", status_code=201)
+def book_flight(body: schemas.FlightBookingIn,
+                db: sqlite3.Connection = Depends(get_db),
+                user=Depends(current_user)):
+    legs_out, total_fare, total_taxes = [], 0, 0
+    for leg in body.legs:
+        try:
+            flight = air.revalidate(leg.origin, leg.dest, leg.date, leg.flight_key, body.cabin)
+        except Exception as exc:
+            raise HTTPException(502, f"Live flight provider error: {exc}")
+        if flight is None:
+            raise HTTPException(400, f"Flight {leg.flight_key} is no longer available — search again")
+        flight["provider"] = air.provider_name()
+        legs_out.append(flight)
+        total_fare += flight["fare"]
+        total_taxes += flight["taxes"]
+    mult = seed.pax_multiplier([p.model_dump() for p in body.passengers])
+    fare = round(total_fare * mult)
+    taxes = round(total_taxes * mult)
+    service = seed.SERVICE_FEE
+    bags_fee = seed.BAG_FEE * body.bags * len(body.passengers)
+    amount = fare + taxes + service + bags_fee
+    reference = make_reference("BTFL")
+    hold = None
+    hold_error = None
+    pax = [p.model_dump(mode="json") for p in body.passengers]
+    instant = None
+    if air.duffel_configured():
+        try:
+            hold = air.hold_order(legs_out[0]["flight_key"], pax,
+                                  {"email": body.contact_email, "phone": body.contact_phone},
+                                  legs_out[0].get("pax_id", ""))
+            print(f"[bt-travel] Duffel hold placed: {hold.get('order_id')} for {reference}")
+        except Exception as exc:
+            hold_error = str(exc)[:300]
+            print(f"[bt-travel] Duffel hold FAILED for {reference}: {hold_error}")
+            if "hold orders" in hold_error.lower():
+                # live holds not enabled on this account - secure seat with an
+                # instant order on deferred payment instead
+                try:
+                    instant = air.book_instant(legs_out[0]["flight_key"], pax,
+                                               {"email": body.contact_email, "phone": body.contact_phone},
+                                               str(legs_out[0].get("raw_amount", "0")),
+                                               legs_out[0].get("raw_currency", "USD"),
+                                               legs_out[0].get("pax_id", ""))
+                    print(f"[bt-travel] Duffel instant order (defer) placed: {instant.get('order_id')} for {reference}")
+                except Exception as exc2:
+                    hold_error = (hold_error + " | instant fallback: " + str(exc2))[:900]
+                    print(f"[bt-travel] Duffel instant fallback FAILED for {reference}: {exc2}")
+    details = {
+        "trip_type": body.trip_type, "cabin": seed.CABINS[body.cabin]["label"],
+        "hold_order": hold,
+        "instant_order": instant,
+        "hold_error": hold_error,
+        "passengers": pax,
+        "legs": legs_out,
+        "fare": fare, "taxes": taxes, "service_fee": service,
+        "bags": body.bags, "bags_fee": bags_fee,
+        "contact": {"email": body.contact_email, "phone": body.contact_phone},
+    }
+    travelers = [f"{p.title} {p.first_name} {p.last_name}" for p in body.passengers]
+    db.execute(
+        """INSERT INTO bookings (reference, user_id, type, status, amount, details, travelers)
+           VALUES (?,?,?,?,?,?,?)""",
+        (reference, user["id"], "flight", "pending", amount,
+         __import__("json").dumps(details), __import__("json").dumps(travelers)))
+    notify(db, user["id"], "Flight booking created",
+           f"Reference {reference} — {len(body.passengers)} passenger(s), {body.legs[0].origin} to {body.legs[0].dest}. "
+           f"Complete payment to confirm.")
+    return {"reference": reference, "type": "flight", "status": "pending",
+            "amount": amount, "currency": seed.CURRENCY, "details": details,
+            "travelers": travelers, "pay_path": f"/#/pay/{reference}"}
