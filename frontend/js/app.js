@@ -912,6 +912,31 @@ async function viewPay(ref) {
   if (b.status === "cancelled") { app.innerHTML = emptyState("ban", "This booking was cancelled.", `<a class="btn btn-outline mt" href="#/">Back home</a>`); return; }
   if (b.status === "confirmed") { renderSuccess(b); return; }
 
+  // LIVE MODE (Paystack key set): hand off to Paystack's hosted checkout page
+  let init = null;
+  try { init = await api("/payments/initialize", { method: "POST", body: { reference: ref } }); }
+  catch (e) { /* older backend without initialize -> fall through to mock */ }
+  if (init && init.authorization_url) {
+    app.innerHTML = `<div class="wrap" style="max-width:560px">
+      <div class="card card-pad mt">
+        <h3 class="section-title" style="font-size:1.2rem">${icon("lock","ic-md")} Complete your payment</h3>
+        <div class="spread mt mb"><span class="muted">Amount payable</span><b class="gateway-amount">${GHS(b.amount)}</b></div>
+        ${bookingSummaryHtml(b)}
+        <a class="btn btn-primary btn-block mt" href="${init.authorization_url}">Continue to secure payment →</a>
+        <button class="btn btn-outline btn-block mt" id="office-instead">${icon("pin","ic-sm")} Pay at our office instead</button>
+        <p class="muted small center mt">Secured by Paystack · MoMo, cards & bank transfer</p>
+      </div></div>`;
+    $("#office-instead").onclick = async e => {
+      const btn = e.target;
+      btn.disabled = true; btn.textContent = "Reserving…";
+      try {
+        const r = await api("/payments/office", { method: "POST", body: { reference: ref } });
+        renderOfficeReserved(r);
+      } catch (err) { toast(err.message, "error"); btn.disabled = false; btn.textContent = "Pay at our office instead"; }
+    };
+    return;
+  }
+
   let method = "card";
   const methodBlurb = { card: "Visa · Mastercard · Verve", bank_transfer: "We show transfer details instantly", ussd: "Dial from any Ghanaian bank", qr: "Scan with your bank app",
     momo: "MTN · Telecel · AT Money — approve with your PIN", office: "Reserve now, pay cash/POS at our Accra office",
@@ -991,12 +1016,15 @@ async function viewPay(ref) {
       } catch (err) { toast(err.message, "error"); btn.disabled = false; syncPlan(); }
       return;
     }
-    btn.disabled = true; btn.textContent = method === "momo" ? "Check your phone…" : "Processing…";
+    btn.disabled = true; btn.textContent = "Processing…";
     try {
+      // live mode: hand off to Paystack's hosted checkout (MoMo/card appear there)
+      const init = await api("/payments/initialize", { method: "POST", body: { reference: ref } });
+      if (init.authorization_url) { location.href = init.authorization_url; return; }
       await api("/payments/confirm", { method: "POST", body: { reference: ref, method } });
       const fresh = await api(`/bookings/${ref}`);
       renderSuccess(fresh);
-    } catch (err) { toast(err.message, "error"); btn.disabled = false; btn.textContent = `Pay ${GHS(b.amount)}`; }
+    } catch (err) { toast(err.message, "error"); btn.disabled = false; syncPlan(); }
   };
 }
 
