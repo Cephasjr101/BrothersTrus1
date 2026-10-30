@@ -302,7 +302,7 @@ table.table th { font-size: .75rem; text-transform: uppercase; letter-spacing: .
 
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; gap: .4rem; }
-  .burger { display: inline-flex; order: 2; }
+  .burger { display: inline-flex; order: 3; }   /* right corner: after brand, flag & auth */
   .topbar-right { order: 2; margin-left: auto; }
   .mainnav { order: 4; display: none; width: 100%; flex-direction: column; padding: .3rem 0 .5rem; gap: .1rem; }
   .mainnav.open { display: flex; }
