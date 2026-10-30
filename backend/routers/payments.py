@@ -1,5 +1,6 @@
-# Payments: live Paystack when PAYSTACK_SECRET_KEY is set, built-in mock otherwise.
-# Both flows: initialize -> hosted checkout (Paystack page or in-app mock) -> confirm/callback.
+# Payments: LIVE Paystack required by default (set PAYSTACK_SECRET_KEY).
+#   PAYMENTS_DEMO=1 re-enables the built-in mock (NO real money moves) - local dev only.
+# Flow: initialize -> Paystack hosted checkout -> webhook/callback -> settle.
 import json
 import os
 import sqlite3
@@ -19,6 +20,15 @@ router = APIRouter(tags=["payments"])
 
 METHOD_LABELS = {"card": "Card", "bank_transfer": "Bank Transfer", "ussd": "USSD", "qr": "QR / Bank app",
                    "momo": "MoMo", "office": "Pay at Office"}
+
+DEMO = os.getenv("PAYMENTS_DEMO", "").lower() in ("1", "true", "yes")
+
+
+def _require_live():
+    """Raise 503 unless Paystack is configured or PAYMENTS_DEMO=1 is set -
+    never auto-settle silently in production."""
+    if not paystack.configured() and not DEMO:
+        raise HTTPException(503, "Payment gateway not configured. Set PAYSTACK_SECRET_KEY.")
 
 
 def _contact(row: sqlite3.Row):
@@ -162,6 +172,7 @@ def pay_installment(body: schemas.PaymentInitIn, db: sqlite3.Connection = Depend
                                   f"{config.BASE_URL}/api/payments/callback", row["reference"])
         return {"live": True, "authorization_url": url, "first": first, "balance": balance,
                 "deadline": deadline, "reference": row["reference"]}
+    _require_live()
     result = _settle(db, row["id"], "Installment (30%)")
     return {"ok": True, "first": first, "balance": balance, "deadline": deadline,
             "reference": row["reference"], "booking_status": result["booking_status"]}
@@ -190,6 +201,7 @@ def pay_balance(body: schemas.PaymentConfirmIn, db: sqlite3.Connection = Depends
         url = paystack.initialize(user["email"], due, gateway_ref,
                                   f"{config.BASE_URL}/api/payments/callback", row["reference"])
         return {"live": True, "authorization_url": url, "due": due, "reference": row["reference"]}
+    _require_live()
     return _settle(db, row["id"], "Balance (installment)")
 
 
@@ -245,7 +257,8 @@ def initialize(body: schemas.PaymentInitIn, db: sqlite3.Connection = Depends(get
                     "amount": row["amount"], "currency": row["currency"], "live": True}
         except Exception as exc:
             raise HTTPException(502, f"Payment gateway error: {exc}")
-    # --- mock mode (dev/demo) ---
+    # --- mock mode (dev/demo only, requires PAYMENTS_DEMO=1) ---
+    _require_live()
     return {"authorization_url": f"/#/pay/{row['reference']}?gateway={gateway_ref}",
             "gateway_reference": gateway_ref, "amount": row["amount"],
             "currency": row["currency"], "live": False}
@@ -254,7 +267,7 @@ def initialize(body: schemas.PaymentInitIn, db: sqlite3.Connection = Depends(get
 @router.post("/payments/confirm")
 def confirm(body: schemas.PaymentConfirmIn, db: sqlite3.Connection = Depends(get_db),
             user=Depends(current_user)):
-    """Mock-mode settlement. In live mode the user pays on Paystack's page instead."""
+    """Mock-mode settlement. In live mode the user pays on Paystack's checkout page instead."""
     row = db.execute("SELECT * FROM bookings WHERE reference=? AND user_id=?",
                      (body.reference, user["id"])).fetchone()
     if row is None:
@@ -265,6 +278,7 @@ def confirm(body: schemas.PaymentConfirmIn, db: sqlite3.Connection = Depends(get
         raise HTTPException(400, "This booking was cancelled")
     if paystack.configured():
         raise HTTPException(400, "Live mode: complete payment on the Paystack checkout page")
+    _require_live()
     covered = db.execute("SELECT COALESCE(SUM(amount),0) FROM payments WHERE booking_id=? AND status IN ('pending','paid')",
                          (row["id"],)).fetchone()[0]
     if covered < row["amount"]:
@@ -291,7 +305,7 @@ def callback(request: Request, reference: str = "", trxref: str = "",
         except Exception:
             ok = False
     else:
-        ok = True
+        ok = DEMO   # mock mode: settle only when explicitly in demo
     if ok and booking:
         _settle(db, pay["booking_id"], "Card")
     return RedirectResponse(f"/#/booking/{booking['reference'] if booking else reference}?paid={1 if ok else 0}")
@@ -306,11 +320,11 @@ async def webhook(request: Request, db: sqlite3.Connection = Depends(get_db)):
         sig = request.headers.get("x-paystack-signature", "")
         if not paystack.valid_signature(raw, sig):
             raise HTTPException(401, "Invalid webhook signature")
-    if payload.get("event") in ("charge.success", "charge.success.replay"):
-        gateway_ref = (payload.get("data") or {}).get("reference", "")
-        row = db.execute(
-            """SELECT b.id FROM payments p JOIN bookings b ON b.id=p.booking_id
-               WHERE p.reference=? AND p.status='pending'""", (gateway_ref,)).fetchone()
-        if row:
-            _settle(db, row["id"], "Card")
+        if payload.get("event") in ("charge.success", "charge.success.replay"):
+            gateway_ref = (payload.get("data") or {}).get("reference", "")
+            row = db.execute(
+                """SELECT b.id FROM payments p JOIN bookings b ON b.id=p.booking_id
+                   WHERE p.reference=? AND p.status='pending'""", (gateway_ref,)).fetchone()
+            if row:
+                _settle(db, row["id"], "Card")
     return {"ok": True}
