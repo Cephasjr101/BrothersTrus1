@@ -197,7 +197,7 @@ async function loadMeta() {
     api("/meta/cars").catch(() => null),
     api("/meta/visa").catch(() => null),
   ]);
-  if (fm) { state.meta.airports = fm.airports || []; state.meta.cabins = fm.cabins || []; }
+  if (fm) { state.meta.airports = fm.airports || []; state.meta.cabins = fm.cabins || []; state.meta.routes = fm.routes || []; }
   if (hm) state.meta.hotelCities = hm.cities || [];
   if (cm) { state.meta.carCities = cm.cities || []; state.meta.carCats = cm.categories || []; }
   if (vm) state.meta.visaCountries = vm.countries || [];
@@ -228,7 +228,7 @@ function viewHome() {
     <div style="margin-top:1.4rem"><button class="btn btn-gold" style="padding:.85rem 2.4rem;font-size:1.05rem" onclick="document.querySelector('.search-shell').scrollIntoView({behavior:'smooth'})">Plan your trip →</button></div>
     <div class="pss-hero mt">${icon("calendar","ic-sm")} <b>Pay small small:</b> book any flight with <b>30% today</b> and complete the balance within <b>4 working days</b></div>
     <div class="hero-badges">
-      <span>${icon("plane","ic-sm")} 14 flight routes</span><span>${icon("hotel","ic-sm")} 26 partner hotels</span>
+      <span>${icon("plane","ic-sm")} ${(state.meta.routes || []).length || 18} flight routes</span><span>${icon("hotel","ic-sm")} 26 partner hotels</span>
       <span>${icon("car","ic-sm")} 7 rental cities</span><span>${icon("passport","ic-sm")} 13 visa destinations</span><span>${icon("users","ic-sm")} 15,000+ recruited</span><span>${icon("lock","ic-sm")} Secure payments</span>
     </div>
   </div></section>
@@ -263,10 +263,13 @@ function viewHome() {
 
   $("#popular").innerHTML = [
     ["Accra \u2192 London", "From GH\u00a28,500", "Direct flights for study, work & family visits", "#/flights?origin=ACC&dest=LHR", "plane"],
-    ["Kumasi weekends", "Flights from GH\u00a2400", "Friday out, Sunday back \u2014 culture, food & comfort", "#/flights?origin=ACC&dest=KMS", "plane"],
+    ["Lagos \u2192 New York", "From GH\u00a212,500", "Direct JFK flights for family visits, school & business", "#/flights?origin=LOS&dest=JFK", "plane"],
     ["Dubai escape", "Hotels from GH\u00a21,650/night", "Burj views, desert safaris, shopping festivals", "#/hotels?city=Dubai", "hotel"],
     ["Work abroad", "UAE \u00b7 Saudi \u00b7 Qatar \u00b7 Europe", "Direct employment visas \u2014 15,000+ candidates placed", "#/visa", "users"],
-    ["Tamale & the North", "Flights from GH\u00a2450", "Explore northern Ghana in 70 minutes", "#/flights?origin=ACC&dest=TML", "plane"],
+    ["Abuja \u2192 London", "From GH\u00a29,000", "Heathrow direct \u2014 your gateway to the UK & Europe", "#/flights?origin=ABV&dest=LHR", "plane"],
+    ["Accra \u2192 Dubai", "From GH\u00a27,200", "The Gulf\u2019s gateway \u2014 shopping, stopovers & family", "#/flights?origin=ACC&dest=DXB", "plane"],
+    ["Accra \u2192 Nairobi", "From GH\u00a26,800", "Kenya Airways \u2014 safaris, business & diaspora visits", "#/flights?origin=ACC&dest=NBO", "plane"],
+    ["Accra \u2192 Addis Ababa", "From GH\u00a25,900", "Ethiopian Airlines hub \u2014 connect across Africa", "#/flights?origin=ACC&dest=ADD", "plane"],
     ["Luxury SUV hire", "From GH\u00a21,500/day", "Airport pickup in Accra, Kumasi & beyond", "#/cars?city=Accra", "car"],
 ].map(([t, p, d, href, icn]) => `
     <a class="card card-pad" href="${href}" style="display:block;color:inherit">
