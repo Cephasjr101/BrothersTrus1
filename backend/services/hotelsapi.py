@@ -227,23 +227,54 @@ def _parse(data: dict, nights: int, city: str) -> dict:
     return {"hotels": _fill_details(hotels)}
 
 
+# LiteAPI /hotels/rates only accepts countryCode, lat/lng, placeId,
+# IATA or hotelIds - NOT free-text city names. Map known cities to
+# coordinates; fall back to a country-wide search otherwise.
+CITY_GEO = {
+    "accra":        (5.6037, -0.1870, "GH"),
+    "kumasi":       (6.6666, -1.6163, "GH"),
+    "tamale":       (9.4034, -0.8393, "GH"),
+    "lagos":        (6.5244, 3.3792, "NG"),
+    "abuja":        (9.0820, 7.3983, "NG"),
+    "nairobi":      (-1.2921, 36.8219, "KE"),
+    "addis ababa":  (8.9806, 38.7578, "ET"),
+    "dubai":        (25.2048, 55.2708, "AE"),
+    "london":       (51.5074, -0.1278, "GB"),
+    "new york":     (40.7128, -74.0060, "US"),
+    "johannesburg": (-26.2041, 28.0473, "ZA"),
+    "paris":        (48.8566, 2.3522, "FR"),
+    "istanbul":     (41.0082, 28.9784, "TR"),
+    "cairo":        (30.0444, 31.2357, "EG"),
+}
+COUNTRY_CODES = {
+    "ghana": "GH", "nigeria": "NG", "kenya": "KE", "ethiopia": "ET",
+    "uae": "AE", "dubai": "AE", "united arab emirates": "AE",
+    "uk": "GB", "united kingdom": "GB", "london": "GB", "england": "GB",
+    "usa": "US", "united states": "US", "new york": "US",
+    "south africa": "ZA", "france": "FR", "paris": "FR",
+    "turkey": "TR", "istanbul": "TR", "egypt": "EG", "cairo": "EG",
+}
+
+
 def _resolve_city(city: str) -> dict:
-    """Map a free-text city to LiteAPI search parameters."""
-    q = city.strip()
-    params = {"cityName": q}
-    if "," in q:
-        city_part, country_part = [p.strip() for p in q.split(",", 1)]
-        params["cityName"] = city_part
-        params["countryCode"] = country_part[:2].upper()
-    for sep in (" ", "-", "/"):
-        if sep in q:
-            parts = [p for p in q.split(sep) if p]
-            if len(parts) >= 2 and all(p.isalpha() for p in parts[:2]):
-                params["cityName"] = " ".join(parts[:2])
-                break
+    """Map free-text input to params LiteAPI /hotels/rates accepts."""
+    q = city.strip().lower()
+    if q in CITY_GEO:
+        lat, lng, cc = CITY_GEO[q]
+        return {"latitude": lat, "longitude": lng, "countryCode": cc}
+    if q in COUNTRY_CODES:
+        return {"countryCode": COUNTRY_CODES[q]}
     if len(q) == 2 and q.isalpha():
-        params = {"countryCode": q.upper()}
-    return params
+        return {"countryCode": q.upper()}
+    # "Accra, Ghana" / "paris france" style
+    for sep in (",", " "):
+        if sep in q:
+            head = q.split(sep)[0].strip()
+            if head in CITY_GEO:
+                lat, lng, cc = CITY_GEO[head]
+                return {"latitude": lat, "longitude": lng, "countryCode": cc}
+    # last resort: country-wide scan, filtered client-side to the city name
+    return {"countryCode": "", "cityName": city.strip()}
 
 
 def search(city: str, checkin: date, checkout: date, rooms: int, guests: int) -> dict:
@@ -262,24 +293,29 @@ def search(city: str, checkin: date, checkout: date, rooms: int, guests: int) ->
         "lastId": None,
         "timeout": 35,
     }
+    if not params.get("countryCode") and "latitude" not in params:
+        # unknown place: scan the whole country list is impossible without a
+        # code - ask for a known city/country instead of a guaranteed 4000
+        raise LiteAPIError(
+            f"unknown location '{city}' - search a major city "
+            f"({', '.join(sorted(CITY_GEO)[:8])}, ...) or a country name")
     try:
         data = _fetch_hotels("rates", **base, **params)
     except LiteAPIError:
-        # destination-based searches can fail ("no available properties");
-        # country-wide rate scans still give bookable results nearby
-        if "cityName" in params and params.get("countryCode"):
-            params = {"countryCode": params["countryCode"]}
-            data = _fetch_hotels("rates", **base, **params)
+        if params.get("countryCode") and ("latitude" in params or "cityName" in params):
+            # narrow search failed ("no available properties") - widen to country
+            data = _fetch_hotels("rates", **base,
+                                 countryCode=params["countryCode"])
         else:
             raise
-    return _parse(data, nights, params.get("cityName", city))
+    return _parse(data, nights, city)
 
 
 def price(hotel_id: str, rate_key: str, checkin: date, checkout: date, rooms: int, guests: int) -> dict | None:
     """Re-price a specific offer at checkout time; None if gone."""
     hid = hotel_id.replace("lite:", "")
     occupancies = [{"adults": guests, "children": [], "childrenAges": []} for _ in range(rooms)]
-    data = _fetch_hotels("rates", hotelId=hid, checkin=checkin.isoformat(),
+    data = _fetch_hotels("rates", hotelIds=[hid], checkin=checkin.isoformat(),
                          checkout=checkout.isoformat(), currency=CURRENCY,
                          guestNationality="GH", occupancies=occupancies,
                          maxRatesPerHotel=3, timeout=35)
