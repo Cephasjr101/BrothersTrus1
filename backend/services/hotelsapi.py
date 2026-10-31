@@ -43,7 +43,7 @@ def hotel_details(hotel_id: str, ttl: int = 86400) -> dict:
             return hit[1]
     try:
         r = httpx.get(f"{BASE}/data/hotel", params={"hotelId": hotel_id},
-                      headers=_H(), timeout=15)
+                      headers=_H(), timeout=8)
         data = (r.json() or {}).get("data") or {}
     except Exception:
         data = {}
@@ -52,33 +52,42 @@ def hotel_details(hotel_id: str, ttl: int = 86400) -> dict:
     return data
 
 
+def _merge_detail(h: dict, d: dict) -> None:
+    if not d:
+        return
+    if h.get("name") in (None, "", "Hotel"):
+        h["name"] = d.get("name") or h["name"]
+    if not h.get("address") or h["address"] == h.get("city", ""):
+        h["address"] = d.get("address") or h["address"]
+    if not h.get("area") or h["area"] == h.get("city", ""):
+        h["area"] = d.get("city") or h["area"]
+    if d.get("country"):
+        h["country"] = d["country"]
+    h["stars"] = d.get("starRating") or h["stars"]
+    h["rating"] = d.get("rating") or h["rating"]
+    h["reviews"] = d.get("reviewCount") or h["reviews"]
+    if not h.get("photo"):
+        imgs = d.get("hotelImages") or []
+        if imgs:
+            h["photo"] = imgs[0].get("url", "")
+
+
 def _fill_details(hotels: list) -> list:
     """Back-fill name/photo/address/stars from /data/hotel for any hotel
-    whose details were missing from the rates response."""
+    whose details were missing from the rates response. Runs in parallel
+    and is capped so search latency stays acceptable."""
     missing = [h for h in hotels if not h.get("_details_ok")]
     if not missing:
         return hotels
-    # cap back-fill work so search latency stays reasonable
-    for h in missing[:24]:
-        d = hotel_details(h["id"].replace("lite:", ""))
-        if not d:
-            continue
-        if h.get("name") in (None, "", "Hotel"):
-            h["name"] = d.get("name") or h["name"]
-        if not h.get("address") or h["address"] == h.get("city", ""):
-            h["address"] = d.get("address") or h["address"]
-        if not h.get("area") or h["area"] == h.get("city", ""):
-            h["area"] = d.get("city") or h["area"]
-        if d.get("country"):
-            h["country"] = d["country"]
-        h["stars"] = d.get("starRating") or h["stars"]
-        h["rating"] = d.get("rating") or h["rating"]
-        h["reviews"] = d.get("reviewCount") or h["reviews"]
-        if not h.get("photo"):
-            imgs = d.get("hotelImages") or []
-            if imgs:
-                h["photo"] = imgs[0].get("url", "")
-        h["_details_ok"] = True
+    missing = missing[:16]
+    from concurrent.futures import ThreadPoolExecutor
+    try:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            details = list(ex.map(lambda h: hotel_details(h["id"].replace("lite:", ""), ttl=86400), missing))
+        for h, d in zip(missing, details):
+            _merge_detail(h, d)
+    except Exception:
+        pass   # details are cosmetic - never break search over them
     for h in hotels:
         h.pop("_details_ok", None)
     return hotels
