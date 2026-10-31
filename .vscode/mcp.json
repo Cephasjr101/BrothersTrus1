@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "liteapi": {
+      "url": "https://mcp.liteapi.travel/api/mcp?apiKey=${env:LITEAPI_KEY}"
+    }
+  }
+}
