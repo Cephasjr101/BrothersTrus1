@@ -73,10 +73,17 @@ def _settle(db: sqlite3.Connection, booking_id: int, method: str) -> dict:
     if total >= row["amount"] - 0.01:
         db.execute("UPDATE bookings SET status='confirmed', updated_at=datetime('now') WHERE id=? AND status!='confirmed'",
                    (booking_id,))
-        _maybe_ticket_flight(db, row)
-        send_notification(db, row["user_id"], "Payment successful",
-                          f"Reference {row['reference']} is confirmed. Safe travels!",
-                          email=c.get("email", ""), phone=c.get("phone", ""))
+        office = method.startswith("Office")
+        _maybe_ticket_flight(db, row, hold_only=office)
+        if office:
+            send_notification(db, row["user_id"], "Booking approved",
+                              f"Reference {row['reference']} approved. Your fare is HELD with the airline "
+                              f"- our team completes ticketing before the hold expires.",
+                              email=c.get("email", ""), phone=c.get("phone", ""))
+        else:
+            send_notification(db, row["user_id"], "Payment successful",
+                              f"Reference {row['reference']} is confirmed. Safe travels!",
+                              email=c.get("email", ""), phone=c.get("phone", ""))
         return {"ok": True, "booking_status": "confirmed", "reference": row["reference"]}
     # partial payment: record progress, keep booking pending
     details = json.loads(row["details"])
@@ -92,23 +99,46 @@ def _settle(db: sqlite3.Connection, booking_id: int, method: str) -> dict:
             "remaining": inst["remaining"], "reference": row["reference"]}
 
 
-def _maybe_ticket_flight(db, booking_row) -> None:
+def _maybe_ticket_flight(db, booking_row, hold_only=False) -> None:
     """Live fulfilment after payment: Duffel airline orders and LiteAPI hotel
-    reservations. Failures never block the booking — they're recorded in the
-    booking details for staff follow-up."""
+    reservations. Failures never break the booking — they're recorded in the
+    booking details for staff follow-up.
+    hold_only=True (office approvals): lock the fare on Duffel as a HOLD
+    instead of ticketing — offers expire fast, so a fresh offer is found per leg."""
     details = {}
     try:
         details = json.loads(booking_row["details"])
         if booking_row["type"] == "flight" and air.duffel_configured() and "legs" in details:
             inst = details.get("instant_order") or {}
             hold_id = (details.get("hold_order") or {}).get("order_id")
-            if inst.get("order_id"):
+            if hold_only and not inst.get("order_id"):
+                pax = details.get("passengers") or []
+                contact = details.get("contact") or {}
+                cabin = details.get("cabin") or "economy"
+                held = []
+                for leg in details["legs"]:
+                    if leg.get("provider") != "duffel":
+                        continue
+                    matches = air.search(leg["origin"], leg["dest"], leg["date"], cabin) or []
+                    if not matches:
+                        raise RuntimeError(f"no live offers for {leg.get('origin')}→{leg.get('dest')}")
+                    want = str(details.get("airline") or "")
+                    pick = next((m for m in matches if want and want in str(m.get("airline"))), matches[0])
+                    h = air.hold_order(pick["flight_key"], pax, contact)
+                    held.append({"leg": f"{leg.get('origin')}→{leg.get('dest')}", **h})
+                details["hold_orders"] = held
+                details["hold_order"] = held[0] if held else {}
+                details["tickets"] = held   # record of what is held
+            elif inst.get("order_id"):
                 # instant order (deferred payment) - already ticketed at booking time
                 details["tickets"] = [{"leg": "instant order (deferred payment)", **inst}]
             elif hold_id:
-                # seat was locked at booking time - just capture it now
-                details["tickets"] = [{"leg": "held order (captured after payment)",
-                                       **air.confirm_held_order(hold_id)}]
+                multi = details.get("hold_orders")
+                if isinstance(multi, list) and len(multi) > 1:
+                    details["tickets"] = [{"leg": h.get("leg"), **air.confirm_held_order(h["order_id"])} for h in multi]
+                else:
+                    details["tickets"] = [{"leg": "held order (captured after payment)",
+                                           **air.confirm_held_order(hold_id)}]
             else:
                 tickets = []
                 for leg in details["legs"]:
