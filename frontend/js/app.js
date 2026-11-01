@@ -65,7 +65,10 @@ async function loadFx() {
     renderCcyPicker();
   } catch (e) { /* fx display is cosmetic - never block the app */ }
 }
-const SERVICE_FEE = 100;
+const SERVICE_FEE = 100;   // visa service fee (GHc), per applicant
+const flightFeeGhs = () => (state.fx && state.fx.serviceFeeUsd)
+  ? Math.round(state.fx.serviceFeeUsd * (state.fx.ghsPerUsd || 0))
+  : 0;   // $5 at the pinned rate; 0 until SERVICE_FEE_USD is set
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const fmtDate = iso => new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
@@ -417,7 +420,6 @@ function legRow(f) {
       <div style="margin-left:auto" class="flight-price">
         <div class="amount">${GHS(f.total)}</div>
         <div class="muted small">per traveller</div>
-        ${f.original_total ? `<div class="muted small" title="Airline fare">Duffel: ${f.original_currency} ${Number(f.original_total).toLocaleString()}</div>` : ""}
         <div class="pss-tag">${icon("calendar","ic-xs")} 30% today ${GHS(Math.round(f.total * 0.3))}</div>
       </div>
       <button class="btn btn-primary btn-sm" data-key="${f.flight_key}" data-leg="${f.origin === state.flightSel.out?.origin ? "ret" : "out"}">Select</button>
@@ -514,7 +516,7 @@ function viewFlights(params) {
     const taxes = legs.reduce((s, l) => s + l.taxes, 0);
     const paxCount = p.adults + p.children + p.infants;
     const bagsCost = (p.bags || 0) * paxCount * 150;
-    const total = Math.round(fare * mult) + Math.round(taxes * mult) + SERVICE_FEE + bagsCost;
+    const total = Math.round(fare * mult) + Math.round(taxes * mult) + flightFeeGhs() + bagsCost;
     const ready = p.trip !== "round_trip" || !!state.flightSel.ret;
     if (!ready) {
       // round trip: dedicated return page showing ONLY return flights
@@ -1939,7 +1941,7 @@ function pickReturnFlight(f, p) {
   const fare = legs.reduce((s, l) => s + l.fare, 0);
   const taxes = legs.reduce((s, l) => s + l.taxes, 0);
   const paxCount = p.adults + p.children + p.infants;
-  const total = Math.round(fare * mult) + Math.round(taxes * mult) + SERVICE_FEE + (p.bags || 0) * paxCount * 150;
+  const total = Math.round(fare * mult) + Math.round(taxes * mult) + flightFeeGhs() + (p.bags || 0) * paxCount * 150;
   showCart({
     icon: "plane",
     title: legs.map(l => `${l.origin} → ${l.dest}`).join(" · "),
