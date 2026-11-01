@@ -155,6 +155,7 @@ def search(origin, dest, date_s, cabin="economy", bags=0, pax=None):
     Falls back through providers; if everything failed the REAL provider
     error is raised (so the UI shows why, not just 'not found')."""
     _LAST_ERROR["msg"] = ""
+    print(f"[search] duffel_configured={duffel_configured()} key_len={len(DUFFEL_KEY)}", flush=True)
     if duffel_configured():
         try:
             r = _duffel_search(origin, dest, date_s, cabin, bags, pax)
@@ -221,13 +222,16 @@ def _duffel_search(origin, dest, date_s, cabin, bags, pax):
     }
     if bags:
         offer_req["data"]["passengers"][0]["checked_baggages"] = [{"type": "bag", "quantity": int(bags)}]
+    print(f"[duffel] key_prefix={DUFFEL_KEY[:12]!r} len={len(DUFFEL_KEY)} "
+          f"slice={origin}->{dest} {date_s}", flush=True)
     r = httpx.post("https://api.duffel.com/air/offer_requests",
                    headers=_duffel_headers(), json=offer_req,
                    timeout=min(GDS_TIMEOUT, 30))
     data = r.json()
+    offers = (data.get("data") or {}).get("offers") or []
+    print(f"[duffel] response status={r.status_code} offers={len(offers)}", flush=True)
     if r.status_code >= 400 or not data.get("data"):
         raise RuntimeError(f"duffel offer_request failed: {data}")
-    offers = data["data"].get("offers") or []
     offers.sort(key=lambda o: float(o.get("total_amount") or 0))
     out = []
     for o in offers[:40]:
@@ -425,33 +429,38 @@ def _amadeus_search(origin, dest, date_s, cabin, bags, pax):
 
 # -------------------------------------------------------------------- demo ---
 def _demo_search(origin, dest, date_s, cabin, bags, pax):
-    """Deterministic demo schedule from seed.flights_for (used when no GDS keys)."""
+    """Deterministic demo schedule from seed.flights_for (used when no GDS keys).
+    Defensive: every field read via .get() so a shape change degrades, not crashes."""
     try:
         d = date_s if isinstance(date_s, date) else datetime.fromisoformat(_dstr(date_s)).date()
     except Exception:
         return []
     cabin_key = _cabin_from_string(cabin)
     try:
-        demos = seed.flights_for(origin, dest, d, cabin_key)
+        demos = seed.flights_for(origin, dest, d, cabin_key) or []
     except Exception:
         return []
     bag_fee = float(getattr(seed, "BAG_FEE", 0) or 0)
     bag_total = bag_fee * int(bags or 0)
     out = []
     for f in demos:
-        arr_date = (d + timedelta(days=1)) if f.get("arrives_next_day") else d
-        price = round(float(f.get("fare") or 0) + bag_total, 2)
-        total = round(float(f.get("total") or 0) + bag_total, 2)
+        dep_t = str(f.get("departure") or "08:00")[:5]
+        arr_t = str(f.get("arrival") or "10:00")[:5]
+        arr_date = d + timedelta(days=1) if (f.get("arrives_next_day") or arr_t <= dep_t) else d
+        fare = float(f.get("fare") or f.get("total") or 0)
+        tot = float(f.get("total") or f.get("fare") or 0)
         out.append({
-            "flight_key": f["flight_key"], "offer_id": f["flight_key"],
-            "stops": f["stops"], "duration_min": f["duration_min"],
-            "depart": f"{f['date']}T{f['departure']}:00",
-            "arrive": f"{arr_date.isoformat()}T{f['arrival']}:00",
+            "flight_key": f.get("flight_key"), "offer_id": f.get("flight_key"),
+            "stops": f.get("stops", 0), "duration_min": f.get("duration_min", 0),
+            "depart": f"{d.isoformat()}T{dep_t}:00",
+            "arrive": f"{arr_date.isoformat()}T{arr_t}:00",
             "cabin": [cabin_key],
-            "airline": [f["airline"]],
-            "flight_no": [f["flight_no"]],
-            "price": price, "total": total, "per_adult": price,
-            "amount_ghs": total, "currency": "GHS", "source": "seed",
+            "airline": [f.get("airline") or f.get("airline_code") or ""],
+            "flight_no": [f.get("flight_no") or ""],
+            "logo": f.get("logo"), "airline_color": f.get("airline_color"),
+            "price": round(fare + bag_total, 2), "total": round(tot + bag_total, 2),
+            "per_adult": round(fare + bag_total, 2),
+            "amount_ghs": round(tot + bag_total, 2), "currency": "GHS", "source": "seed",
             "baggage": {"checked": bags or None, "carry": None},
             "changeable": True, "refundable": False,
         })
