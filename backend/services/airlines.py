@@ -248,7 +248,11 @@ def _duffel_offer_to_flight(o, travelers):
     segs = []
     for s in o.get("slices") or []:
         segs.extend(s.get("segments") or [])
+    if not segs:
+        raise ValueError("offer has no segments")
     d0, d1 = segs[0], segs[-1]
+    if not d0.get("departing_at") or not d1.get("arriving_at"):
+        raise ValueError("offer missing segment times")
     stops = len(segs) - 1
     dep = datetime.fromisoformat(d0["departing_at"].replace("Z", "+00:00"))
     arr = datetime.fromisoformat(d1["arriving_at"].replace("Z", "+00:00"))
