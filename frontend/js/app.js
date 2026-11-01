@@ -417,6 +417,7 @@ function legRow(f) {
       <div style="margin-left:auto" class="flight-price">
         <div class="amount">${GHS(f.total)}</div>
         <div class="muted small">per traveller</div>
+        ${f.original_total ? `<div class="muted small" title="Airline fare">Duffel: ${f.original_currency} ${Number(f.original_total).toLocaleString()}</div>` : ""}
         <div class="pss-tag">${icon("calendar","ic-xs")} 30% today ${GHS(Math.round(f.total * 0.3))}</div>
       </div>
       <button class="btn btn-primary btn-sm" data-key="${f.flight_key}" data-leg="${f.origin === state.flightSel.out?.origin ? "ret" : "out"}">Select</button>
