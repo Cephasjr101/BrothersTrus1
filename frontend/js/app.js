@@ -8,6 +8,8 @@ const state = {
   token: localStorage.getItem("dt_token") || "",
   user: null,
   meta: { airports: [], cabins: [], hotelCities: [], carCities: [], carCats: [], visaCountries: [] },
+  ccy: localStorage.getItem("japafly_ccy") || "",
+  fx: null,
   flightSel: {},   // {out: flightObj, ret: flightObj}
   sel: {},         // generic selection per module (hotel room, car, visa slot)
 };
@@ -16,7 +18,53 @@ const state = {
 const $  = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const GHS = n => "GH\u00A2" + Number(n || 0).toLocaleString("en-GH");
+/* Display currency: canonical money is GHS (what Paystack charges); other
+   currencies are visitor formatting via /meta/fx live rates. */
+const CCY_SYMBOLS = { GHS: "GH\u00A2", USD: "$", GBP: "\u00A3", EUR: "\u20AC", NGN: "\u20A6",
+  KES: "KSh ", ETB: "Br ", AED: "AED ", ZAR: "R ", EGP: "E\u00A3 ", CAD: "CA$", AUD: "A$",
+  INR: "\u20B9", CNY: "\u00A5", RWF: "RF ", XOF: "CFA ", XAF: "FCFA ", LRD: "L$" };
+function fxAmount(n) {
+  const ghs = Number(n || 0);
+  const c = state.ccy || "GHS";
+  if (!state.fx || c === "GHS") return { amt: ghs, ccy: "GHS" };
+  const rate = state.fx.rates && state.fx.rates[c];
+  if (!rate || !state.fx.ghsPerUsd) return { amt: ghs, ccy: "GHS" };
+  return { amt: Math.round(ghs / state.fx.ghsPerUsd * rate), ccy: c };
+}
+const GHS = n => { const { amt, ccy } = fxAmount(n);
+  return (CCY_SYMBOLS[ccy] || ccy + " ") + amt.toLocaleString(); };
+function detectCcy() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const cc = state.fx && state.fx.tzCountry && state.fx.tzCountry[tz];
+    return (cc && state.fx.countryCurrencies[cc]) || "GHS";
+  } catch (e) { return "GHS"; }
+}
+function renderCcyPicker() {
+  let el = $("#ccy-picker");
+  if (!el) {
+    const host = $(".topbar-right");
+    if (!host) return;
+    el = document.createElement("select");
+    el.id = "ccy-picker"; el.title = "Display currency";
+    el.style.cssText = "padding:.2rem .3rem;border:1px solid #d6dce8;border-radius:6px;" +
+      "font-size:.8rem;background:#fff;margin-right:.4rem;color:#1F2D54";
+    host.insertBefore(el, host.firstChild);
+    el.onchange = () => { state.ccy = el.value;
+      localStorage.setItem("japafly_ccy", el.value); route(); };
+  }
+  el.innerHTML = Object.keys(CCY_SYMBOLS)
+    .map(c => `<option value="${c}" ${c === (state.ccy || "GHS") ? "selected" : ""}>${c}</option>`).join("");
+}
+async function loadFx() {
+  try {
+    const d = await api("/meta/fx");
+    state.fx = d;
+    if (!state.ccy) { state.ccy = detectCcy();
+      if (state.ccy !== "GHS") localStorage.setItem("japafly_ccy", state.ccy); }
+    renderCcyPicker();
+  } catch (e) { /* fx display is cosmetic - never block the app */ }
+}
 const SERVICE_FEE = 100;
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const addDaysISO = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
@@ -585,6 +633,7 @@ function renderHotelBooking(hotel, room, p, nights) {
         </div>
         <div class="field"><label>Special requests (optional)</label><textarea name="special_requests" rows="2" placeholder="Early check-in, airport shuttle…"></textarea></div>
         <button class="btn btn-primary btn-block">Continue to payment · ${GHS(room.pricing.total)}</button>
+      <p class="small dim mt" style="font-size:.75rem;opacity:.75">You are charged in Ghana cedis (GH\u00A2) at checkout ${(state.ccy && state.ccy !== 'GHS') ? '- shown in ' + state.ccy + ' for your convenience' : ''}.</p>
       </form>
     </div>
     <div class="summary-card">
@@ -1244,6 +1293,7 @@ function route() {
   try {
     await loadMe();
     await loadMeta();
+    loadFx();
   } catch (err) {
     toast("Couldn't reach the API — is the backend running?", "error");
   }
