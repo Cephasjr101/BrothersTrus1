@@ -406,32 +406,38 @@ def _amadeus_search(origin, dest, date_s, cabin, bags, pax):
 
 # -------------------------------------------------------------------- demo ---
 def _demo_search(origin, dest, date_s, cabin, bags, pax):
-    """Deterministic demo schedule from seed data (used when no GDS keys)."""
-    q = _norm({"origin": origin, "dest": dest, "date": date_s})
-    flights = []
-    for f in seed.SEED_FLIGHTS:
-        if (f["origin"], f["dest"]) != (q["origin"], q["dest"]):
-            continue
-        dep = f"{q['date']}T{f['dep_time']}:00"
-        hh, mm = f["dep_time"].split(":")
-        arr_dt = datetime.fromisoformat(dep) + timedelta(minutes=f["duration_min"])
-        arr = arr_dt.isoformat()
-        base = f["price_ghs"] + 60 * int(bags or 0)
-        cap = {"economy": 1.0, "premium_economy": 1.35, "business": 1.9}.get(_cabin_from_string(cabin), 1.0)
-        price = round(base * cap, 2)
-        flights.append({
-            "flight_key": f["flight_no"], "offer_id": f["flight_no"],
+    """Deterministic demo schedule from seed.flights_for (used when no GDS keys)."""
+    try:
+        d = date_s if isinstance(date_s, date) else datetime.fromisoformat(_dstr(date_s)).date()
+    except Exception:
+        return []
+    cabin_key = _cabin_from_string(cabin)
+    try:
+        demos = seed.flights_for(origin, dest, d, cabin_key)
+    except Exception:
+        return []
+    bag_fee = float(getattr(seed, "BAG_FEE", 0) or 0)
+    bag_total = bag_fee * int(bags or 0)
+    out = []
+    for f in demos:
+        arr_date = (d + timedelta(days=1)) if f.get("arrives_next_day") else d
+        price = round(float(f.get("fare") or 0) + bag_total, 2)
+        total = round(float(f.get("total") or 0) + bag_total, 2)
+        out.append({
+            "flight_key": f["flight_key"], "offer_id": f["flight_key"],
             "stops": f["stops"], "duration_min": f["duration_min"],
-            "depart": dep, "arrive": arr,
-            "cabin": [_cabin_from_string(cabin)],
-            "airline": [f["airline"]], "flight_no": [f["flight_no"]],
-            "price": price, "total": price, "per_adult": price,
-            "amount_ghs": price, "currency": "GHS", "source": "seed",
+            "depart": f"{f['date']}T{f['departure']}:00",
+            "arrive": f"{arr_date.isoformat()}T{f['arrival']}:00",
+            "cabin": [cabin_key],
+            "airline": [f["airline"]],
+            "flight_no": [f["flight_no"]],
+            "price": price, "total": total, "per_adult": price,
+            "amount_ghs": total, "currency": "GHS", "source": "seed",
             "baggage": {"checked": bags or None, "carry": None},
             "changeable": True, "refundable": False,
         })
-    flights.sort(key=lambda f: f["price"])
-    return _dedupe(flights, limit=60)
+    out.sort(key=lambda x: x["price"])
+    return _dedupe(out, limit=60)
 
 
 def cancel_booking(ref):
