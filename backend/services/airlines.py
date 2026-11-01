@@ -237,8 +237,10 @@ def _duffel_search(origin, dest, date_s, cabin, bags, pax):
     for o in offers[:40]:
         try:
             out.append(_duffel_offer_to_flight(o, travelers))
-        except Exception:
+        except Exception as exc:
+            print(f"[duffel] offer parse failed: {type(exc).__name__}: {exc}", flush=True)
             continue
+    print(f"[duffel] parsed {len(out)}/{min(len(offers), 40)} offers", flush=True)
     return _dedupe(out, limit=60)
 
 
@@ -259,8 +261,8 @@ def _duffel_offer_to_flight(o, travelers):
         "offer_id": o.get("id"),
         "stops": stops,
         "duration_min": dur,
-        "depart": d0["depart"],
-        "arrive": d1["arrive"],
+        "depart": d0.get("departing_at"),
+        "arrive": d1.get("arriving_at"),
         "cabin": sorted({s.get("cabin_class") or "economy" for s in segs}),
         "airline": _carriers(segs),
         "flight_no": [s.get("flight_number") or s.get("marketing_flight_number") for s in segs],
