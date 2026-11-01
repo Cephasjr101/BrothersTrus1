@@ -143,18 +143,37 @@ def _carriers(segs):
     return names[:2]
 
 
+_LAST_ERROR = {"msg": ""}
+
+
+def last_error():
+    return _LAST_ERROR["msg"]
+
+
 def search(origin, dest, date_s, cabin="economy", bags=0, pax=None):
-    """One-way search. Returns a list of flight dicts (all GHS, cheapest first)."""
+    """One-way search. Returns flight dicts (GHS, cheapest first).
+    Falls back through providers; if everything failed the REAL provider
+    error is raised (so the UI shows why, not just 'not found')."""
+    _LAST_ERROR["msg"] = ""
     if duffel_configured():
         try:
-            return _duffel_search(origin, dest, date_s, cabin, bags, pax)
-        except Exception:
-            pass   # fall through to next provider
-    try:
-        return _amadeus_search(origin, dest, date_s, cabin, bags, pax)
-    except Exception:
-        pass
-    return _demo_search(origin, dest, date_s, cabin, bags, pax)
+            r = _duffel_search(origin, dest, date_s, cabin, bags, pax)
+            return r   # empty list = airline genuinely has no availability
+        except Exception as exc:
+            _LAST_ERROR["msg"] = f"duffel: {exc}"
+    if AMADEUS_KEY and AMADEUS_SECRET:
+        try:
+            r = _amadeus_search(origin, dest, date_s, cabin, bags, pax)
+            if r:
+                return r
+        except Exception as exc:
+            _LAST_ERROR["msg"] = f"amadeus: {exc}"
+    demo = _demo_search(origin, dest, date_s, cabin, bags, pax)
+    if demo:
+        return demo
+    if _LAST_ERROR["msg"]:
+        raise RuntimeError(_LAST_ERROR["msg"])
+    return []
 
 
 def _norm(q):
@@ -195,7 +214,7 @@ def _duffel_search(origin, dest, date_s, cabin, bags, pax):
             "slices": slices,
             "passengers": [{"type": p.get("type", "adult")} for p in travelers],
             "cabin_class": _cabin_from_string(cabin),
-            "requested_sources": ["duffel"],
+            "currency": "GHS",
             "max_connections": 2,
             "limit": 25,
         }
