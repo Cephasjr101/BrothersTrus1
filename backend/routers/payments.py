@@ -74,7 +74,10 @@ def _settle(db: sqlite3.Connection, booking_id: int, method: str) -> dict:
         db.execute("UPDATE bookings SET status='confirmed', updated_at=datetime('now') WHERE id=? AND status!='confirmed'",
                    (booking_id,))
         office = method.startswith("Office")
-        _maybe_ticket_flight(db, row, hold_only=office)
+        # EVERY settled payment (card/MoMo/office) locks the seat on Duffel as a
+        # HOLD - no admin step needed. Ticketing (capture) happens from the
+        # Duffel dashboard before the hold expires.
+        _maybe_ticket_flight(db, row, hold_only=True)
         if office:
             send_notification(db, row["user_id"], "Booking approved",
                               f"Reference {row['reference']} approved. Your fare is HELD with the airline "
@@ -82,7 +85,8 @@ def _settle(db: sqlite3.Connection, booking_id: int, method: str) -> dict:
                               email=c.get("email", ""), phone=c.get("phone", ""))
         else:
             send_notification(db, row["user_id"], "Payment successful",
-                              f"Reference {row['reference']} is confirmed. Safe travels!",
+                              f"Reference {row['reference']} paid in full. Your seat is HELD with the airline "
+                              f"and ticketing completes shortly. Safe travels!",
                               email=c.get("email", ""), phone=c.get("phone", ""))
         return {"ok": True, "booking_status": "confirmed", "reference": row["reference"]}
     # partial payment: record progress, keep booking pending
@@ -103,8 +107,9 @@ def _maybe_ticket_flight(db, booking_row, hold_only=False) -> None:
     """Live fulfilment after payment: Duffel airline orders and LiteAPI hotel
     reservations. Failures never break the booking — they're recorded in the
     booking details for staff follow-up.
-    hold_only=True (office approvals): lock the fare on Duffel as a HOLD
-    instead of ticketing — offers expire fast, so a fresh offer is found per leg."""
+    hold_only=True (ALL settled payments): lock the fare on Duffel as a HOLD
+    instead of ticketing — offers expire fast, so a fresh offer is found per leg.
+    Existing instant orders / valid holds are still captured (money already moved)."""
     details = {}
     try:
         details = json.loads(booking_row["details"])
